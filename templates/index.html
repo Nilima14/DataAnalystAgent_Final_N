@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Analyst Agent</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container mt-4">
+        <header class="text-center mb-4">
+            <h1 class="display-4 mb-2">🤖 Data Analyst Agent</h1>
+            <p class="lead">LLM-powered data analysis API that can scrape, analyze, and visualize data</p>
+        </header>
+
+        <div class="row">
+            <div class="col-lg-8 mx-auto">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📋 Test the API</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="analysisForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="questionFile" class="form-label">Questions File (Required)</label>
+                                <input type="file" class="form-control" id="questionFile" name="questions.txt" accept=".txt" required>
+                                <div class="form-text">Upload a text file named "questions.txt" containing your analysis questions.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="additionalFiles" class="form-label">Additional Files (Optional)</label>
+                                <input type="file" class="form-control" id="additionalFiles" name="files" multiple 
+                                       accept=".csv,.json,.txt,.xlsx,.png,.jpg,.jpeg">
+                                <div class="form-text">Upload any data files (CSV, JSON, images, etc.) needed for analysis.</div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
+                                <span id="submitText">🚀 Start Analysis</span>
+                                <div id="submitSpinner" class="spinner-border spinner-border-sm ms-2 d-none" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div id="resultsSection" class="card mt-4 d-none">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📊 Analysis Results</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="resultsContent">
+                            <!-- Results will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Section -->
+                <div id="errorSection" class="alert alert-danger mt-4 d-none">
+                    <h6 class="alert-heading">❌ Error</h6>
+                    <div id="errorContent"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Documentation -->
+        <div class="row mt-5">
+            <div class="col-lg-10 mx-auto">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📚 API Documentation</h5>
+                    </div>
+                    <div class="card-body">
+                        <h6>Endpoint</h6>
+                        <code>POST /api/</code>
+
+                        <h6 class="mt-3">Request Format</h6>
+                        <pre><code>curl -X POST "https://your-domain.com/api/" \
+  -F "questions.txt=@questions.txt" \
+  -F "data.csv=@data.csv" \
+  -F "image.png=@image.png"</code></pre>
+
+                        <h6 class="mt-3">Requirements</h6>
+                        <ul>
+                            <li><strong>questions.txt</strong> - Required file containing analysis questions</li>
+                            <li>Additional files - Optional data files for analysis</li>
+                        </ul>
+
+                        <h6 class="mt-3">Sample Question Format</h6>
+                        <div class="bg-dark p-3 rounded">
+                            <small class="text-muted">
+                                Scrape the list of highest grossing films from Wikipedia. It is at the URL:<br>
+                                https://en.wikipedia.org/wiki/List_of_highest-grossing_films<br><br>
+                                
+                                Answer the following questions and respond with a JSON array of strings containing the answer.<br><br>
+                                
+                                1. How many $2 bn movies were released before 2000?<br>
+                                2. Which is the earliest film that grossed over $1.5 bn?<br>
+                                3. What's the correlation between the Rank and Peak?<br>
+                                4. Draw a scatterplot of Rank and Peak along with a dotted red regression line through it.
+                                   Return as a base-64 encoded data URI, `"data:image/png;base64,iVBORw0KG..."` under 100,000 bytes.
+                            </small>
+                        </div>
+
+                        <h6 class="mt-3">Response Format</h6>
+                        <p>Returns JSON array or object based on the question requirements:</p>
+                        <pre><code>[1, "Titanic", 0.485782, "data:image/png;base64,iVBORw0KG..."]</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center mt-5 mb-4">
+            <p class="text-muted">
+                <small>
+                    Powered by Google Gemini AI • 
+                    <a href="/health" class="text-decoration-none">Health Check</a>
+                </small>
+            </p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/script.js"></script>
+</body>
+</html>
