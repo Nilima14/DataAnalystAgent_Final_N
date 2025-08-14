@@ -19,4 +19,7 @@ starlette>=0.47.2
 trafilatura>=2.0.0          # Keep if you're using for scraping
 uvicorn>=0.35.0
 python-dotenv>=0.21.0        # For environment variable management
+networkx>=2.8
+
 pytest>=7.0.0                # Optional for testing
+
