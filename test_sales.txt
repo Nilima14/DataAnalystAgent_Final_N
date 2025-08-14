@@ -1,0 +1,7 @@
+Analyze `sample-sales.csv`.
+Return a JSON object with keys:
+- `total_sales`: number
+- `top_region`: string  
+- `day_sales_correlation`: number
+- `bar_chart`: base64 PNG string under 100kB
+- `median_sales`: number

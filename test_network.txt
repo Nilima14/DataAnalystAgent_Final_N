@@ -1,0 +1,7 @@
+Use the undirected network in `edges.csv`.
+Return a JSON object with keys:
+- `edge_count`: number
+- `highest_degree_node`: string
+- `average_degree`: number
+- `density`: number
+- `shortest_path_alice_bob`: number

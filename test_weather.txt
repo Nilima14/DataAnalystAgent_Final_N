@@ -1,0 +1,7 @@
+Analyze `sample-weather.csv`.
+Return a JSON object with keys:
+- `average_temp_c`: number
+- `max_precip_date`: string
+- `min_temp_c`: number
+- `temp_precip_correlation`: number
+- `average_precip_mm`: number
