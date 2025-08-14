@@ -1,0 +1,37 @@
+# Ignore Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore environment variables files (if you use .env)
+.env
+
+# Ignore log files
+*.log
+
+# Ignore virtual environments
+venv/
+env/
+
+# Ignore the node_modules folder (if using JavaScript/TypeScript)
+node_modules/
+
+# Ignore temporary files created by editors
+.vscode/
+.idea/
+
+# Ignore Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Ignore build and distribution directories
+build/
+dist/
+*.egg-info/
+
+# Ignore test data (unless it's necessary to be shared)
+test_data/
+
+# Ignore compiled code (for C, C++ or other compiled languages)
+*.o
+*.out
+*.a
