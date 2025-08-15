@@ -1,4 +1,4 @@
-#univsal solver
+#universal_solver
 import os
 import sys
 import json
@@ -88,23 +88,37 @@ def exec_python(code: str) -> Tuple[bool, str]:
 # ========== Domain: Sales ==========
 def analyze_sales(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {}
+        return {
+            "total_sales": 0.0,
+            "average_sales": 0.0,
+            "top_product": "",
+            "top_region": "",
+            "sales_by_region": {}
+        }
+
     df = pd.concat(dfs, ignore_index=True)
     col_rev = next((c for c in df.columns if "sale" in c.lower() or "revenue" in c.lower()), None)
-    rev = pd.to_numeric(df[col_rev], errors="coerce").fillna(0) if col_rev else pd.Series([0]*len(df))
+    if col_rev:
+        rev = pd.to_numeric(df[col_rev], errors="coerce").fillna(0)
+    else:
+        rev = pd.Series([0] * len(df))
+
     total = float(rev.sum())
-    avg = float(rev.mean()) if len(rev) else 0
-    top_product = None
-    if "product" in df.columns.str.lower().to_list():
-        colp = next(c for c in df.columns if "product" in c.lower())
-        top_product = str(df.groupby(colp)[col_rev].sum().idxmax()) if col_rev else None
+    avg = float(rev.mean()) if len(rev) else 0.0
+
+    top_product = ""
+    prod_col = next((c for c in df.columns if "product" in c.lower()), None)
+    if prod_col and col_rev:
+        top_product = str(df.groupby(prod_col)[col_rev].sum().idxmax())
+
     sales_by_region = {}
-    top_region = None
-    if "region" in df.columns.str.lower().to_list():
-        colr = next(c for c in df.columns if "region" in c.lower())
-        if col_rev:
-            sales_by_region = {str(k): float(v) for k, v in df.groupby(colr)[col_rev].sum().to_dict().items()}
+    top_region = ""
+    region_col = next((c for c in df.columns if "region" in c.lower()), None)
+    if region_col and col_rev:
+        sales_by_region = {str(k): round(float(v), 6) for k, v in df.groupby(region_col)[col_rev].sum().to_dict().items()}
+        if sales_by_region:
             top_region = max(sales_by_region, key=sales_by_region.get)
+
     return {
         "total_sales": round(total, 6),
         "average_sales": round(avg, 6),
@@ -116,25 +130,37 @@ def analyze_sales(dfs: List[pd.DataFrame]) -> Dict:
 # ========== Domain: Weather ==========
 def analyze_weather(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {}
+        return {
+            "average_temperature": 0.0,
+            "max_temperature": 0.0,
+            "min_temperature": 0.0,
+            "total_rainfall": 0.0,
+            "days_recorded": 0
+        }
+
     df = pd.concat(dfs, ignore_index=True)
     col_temp = next((c for c in df.columns if "temp" in c.lower()), None)
     col_rain = next((c for c in df.columns if "rain" in c.lower() or "precip" in c.lower()), None)
-    avg_temp = max_temp = min_temp = None
+
+    avg_temp = max_temp = min_temp = 0.0
     if col_temp:
-        vals = pd.to_numeric(df[col_temp], errors="coerce")
-        avg_temp = float(vals.mean())
-        max_temp = float(vals.max())
-        min_temp = float(vals.min())
-    total_rain = 0
+        vals = pd.to_numeric(df[col_temp], errors="coerce").dropna()
+        if not vals.empty:
+            avg_temp = float(vals.mean())
+            max_temp = float(vals.max())
+            min_temp = float(vals.min())
+
+    total_rain = 0.0
     if col_rain:
         vals = pd.to_numeric(df[col_rain], errors="coerce").fillna(0)
         total_rain = float(vals.sum())
-    days = len(df)
+
+    days = int(len(df))
+
     return {
-        "average_temperature": None if avg_temp is None else round(avg_temp, 6),
-        "max_temperature": None if max_temp is None else round(max_temp, 6),
-        "min_temperature": None if min_temp is None else round(min_temp, 6),
+        "average_temperature": round(avg_temp, 6),
+        "max_temperature": round(max_temp, 6),
+        "min_temperature": round(min_temp, 6),
         "total_rainfall": round(total_rain, 6),
         "days_recorded": days
     }
@@ -142,30 +168,53 @@ def analyze_weather(dfs: List[pd.DataFrame]) -> Dict:
 # ========== Domain: Graph ==========
 def analyze_graph(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {}
+        return {
+            "edge_count": 0,
+            "highest_degree_node": "",
+            "average_degree": 0.0,
+            "density": 0.0,
+            "shortest_path_alice_eve": 0,
+            "network_graph": "",
+            "degree_histogram": ""
+        }
+
     df = pd.concat(dfs, ignore_index=True)
     if df.shape[1] < 2:
-        return {}
+        return {
+            "edge_count": 0,
+            "highest_degree_node": "",
+            "average_degree": 0.0,
+            "density": 0.0,
+            "shortest_path_alice_eve": 0,
+            "network_graph": "",
+            "degree_histogram": ""
+        }
+
     edges = list(df.iloc[:, :2].itertuples(index=False, name=None))
     G = nx.Graph()
     G.add_edges_from(edges)
-    edge_count = G.number_of_edges()
+
     degrees = dict(G.degree())
     highest_degree_node = max(degrees, key=degrees.get)
     average_degree = sum(degrees.values()) / len(degrees)
     density = nx.density(G)
-    shortest_path_alice_eve = None
+
+    shortest_path_alice_eve = 0
     if "Alice" in G and "Eve" in G:
         try:
             shortest_path_alice_eve = nx.shortest_path_length(G, "Alice", "Eve")
         except nx.NetworkXNoPath:
-            shortest_path_alice_eve = None
+            shortest_path_alice_eve = 0
+
+    # Draw network graph
     plt.figure(figsize=(6, 6))
     nx.draw(G, with_labels=True, node_color='lightblue', node_size=500)
     buf = io.BytesIO()
     plt.savefig(buf, format="png")
     plt.close()
     network_graph_b64 = base64.b64encode(buf.getvalue()).decode()
+
+    # Degree histogram
     plt.figure(figsize=(6, 4))
     plt.hist(list(degrees.values()), bins=range(1, max(degrees.values())+2))
     plt.xlabel("Degree")
@@ -174,11 +223,12 @@ def analyze_graph(dfs: List[pd.DataFrame]) -> Dict:
     plt.savefig(buf, format="png")
     plt.close()
     degree_histogram_b64 = base64.b64encode(buf.getvalue()).decode()
+
     return {
-        "edge_count": edge_count,
-        "highest_degree_node": highest_degree_node,
-        "average_degree": average_degree,
-        "density": density,
+        "edge_count": G.number_of_edges(),
+        "highest_degree_node": str(highest_degree_node),
+        "average_degree": round(average_degree, 6),
+        "density": round(density, 6),
         "shortest_path_alice_eve": shortest_path_alice_eve,
         "network_graph": network_graph_b64,
         "degree_histogram": degree_histogram_b64
@@ -190,7 +240,6 @@ def orchestrate(questions_file: str, attachment_files: List[str]) -> Dict:
     dfs = [read_any_table(p) for p in attachment_files]
     q_low = q_text.lower()
 
-    # Direct domain handling
     if "sale" in q_low or any("sale" in c.lower() for df in dfs for c in df.columns):
         return {"task_type": "sales", "output": analyze_sales(dfs)}
     if "temp" in q_low or "weather" in q_low or any("temp" in c.lower() for df in dfs for c in df.columns):
@@ -198,7 +247,6 @@ def orchestrate(questions_file: str, attachment_files: List[str]) -> Dict:
     if "edge" in q_low or "graph" in q_low or any("edge" in c.lower() for df in dfs for c in df.columns):
         return {"task_type": "graph", "output": analyze_graph(dfs)}
 
-    # Fallback to LLM pipeline
     prompt_meta = f"""
 You are a Python data assistant.
 Generate Python code to:
