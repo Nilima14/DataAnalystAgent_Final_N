@@ -1,4 +1,4 @@
-#universal_solver
+# universal_solver.py
 import os
 import sys
 import json
@@ -11,29 +11,19 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 
-# ========== Auto-install missing dependencies ==========
+# ================= Auto-install missing dependencies =================
 def ensure_package(pkg_name, import_name=None):
     try:
         __import__(import_name or pkg_name)
     except ImportError:
-        print(f"Installing missing package: {pkg_name} ...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_name])
         __import__(import_name or pkg_name)
 
-ensure_package("openai")
-ensure_package("google-generativeai", "google.generativeai")
 ensure_package("pandas")
 ensure_package("networkx")
 ensure_package("matplotlib")
 
-# ========== Config ==========
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # "openai" or "gemini"
-OPENAI_MODEL = "gpt-4"
-GEMINI_MODEL = "gemini-pro"
-MAX_FIX_ATTEMPTS = 3
-PYTHON_TIMEOUT_SEC = 90
-
-# ========== File Reading ==========
+# ================= Helpers =================
 def read_text_file(path: str) -> str:
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         return f.read()
@@ -53,229 +43,200 @@ def read_any_table(path: str) -> pd.DataFrame:
     except:
         return pd.DataFrame()
 
-# ========== LLM Call ==========
-def call_llm(prompt: str) -> str:
-    if LLM_PROVIDER == "openai":
-        from openai import OpenAI
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        return resp.choices[0].message.content
-    elif LLM_PROVIDER == "gemini":
-        import google.generativeai as genai
-        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt)
-        return response.text
-    else:
-        raise ValueError("Invalid LLM_PROVIDER")
+def fig_to_base64(fig) -> str:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+    plt.close(fig)
+    data = buf.getvalue()
+    # ensure under 100kB
+    if len(data) > 100000:
+        # try compress by lowering dpi
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=70, bbox_inches="tight")
+        data = buf.getvalue()
+    return base64.b64encode(data).decode()
 
-def exec_python(code: str) -> Tuple[bool, str]:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".py", mode="w", encoding="utf-8") as f:
-        f.write(code)
-        path = f.name
-    try:
-        res = subprocess.run(["python", path], capture_output=True, text=True, timeout=PYTHON_TIMEOUT_SEC)
-        ok = res.returncode == 0
-        out = res.stdout.strip() if ok else res.stderr.strip()
-    finally:
-        os.unlink(path)
-    return ok, out
-
-# ========== Domain: Sales ==========
+# ================= Sales =================
 def analyze_sales(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {
-            "total_sales": 0.0,
-            "average_sales": 0.0,
-            "top_product": "",
-            "top_region": "",
-            "sales_by_region": {}
-        }
-
+        return {k: None for k in [
+            "total_sales","top_region","day_sales_correlation",
+            "bar_chart","median_sales","total_sales_tax","cumulative_sales_chart"
+        ]}
     df = pd.concat(dfs, ignore_index=True)
+
+    # Identify revenue/sales column
     col_rev = next((c for c in df.columns if "sale" in c.lower() or "revenue" in c.lower()), None)
-    if col_rev:
-        rev = pd.to_numeric(df[col_rev], errors="coerce").fillna(0)
+    rev = pd.to_numeric(df[col_rev], errors="coerce").fillna(0) if col_rev else pd.Series([0]*len(df))
+
+    # Total & median
+    total_sales = float(rev.sum())
+    median_sales = float(rev.median())
+
+    # Sales tax (assume 10% if no explicit column)
+    if any("tax" in c.lower() for c in df.columns):
+        col_tax = next(c for c in df.columns if "tax" in c.lower())
+        total_sales_tax = float(pd.to_numeric(df[col_tax], errors="coerce").fillna(0).sum())
     else:
-        rev = pd.Series([0] * len(df))
+        total_sales_tax = total_sales * 0.1
 
-    total = float(rev.sum())
-    avg = float(rev.mean()) if len(rev) else 0.0
+    # Top region
+    top_region = None
+    if any("region" in c.lower() for c in df.columns):
+        colr = next(c for c in df.columns if "region" in c.lower())
+        top_region = str(df.groupby(colr)[col_rev].sum().idxmax()) if col_rev else None
 
-    top_product = ""
-    prod_col = next((c for c in df.columns if "product" in c.lower()), None)
-    if prod_col and col_rev:
-        top_product = str(df.groupby(prod_col)[col_rev].sum().idxmax())
+    # Day vs sales correlation
+    day_sales_correlation = None
+    if any("day" in c.lower() for c in df.columns):
+        cold = next(c for c in df.columns if "day" in c.lower())
+        try:
+            day_sales_correlation = float(pd.to_numeric(df[cold], errors="coerce").corr(rev))
+        except:
+            day_sales_correlation = None
 
-    sales_by_region = {}
-    top_region = ""
-    region_col = next((c for c in df.columns if "region" in c.lower()), None)
-    if region_col and col_rev:
-        sales_by_region = {str(k): round(float(v), 6) for k, v in df.groupby(region_col)[col_rev].sum().to_dict().items()}
-        if sales_by_region:
-            top_region = max(sales_by_region, key=sales_by_region.get)
+    # Bar chart (sales by region if available)
+    bar_chart = None
+    if top_region and col_rev:
+        fig, ax = plt.subplots(figsize=(6,4))
+        df.groupby(colr)[col_rev].sum().plot(kind="bar", ax=ax)
+        ax.set_ylabel("Sales")
+        bar_chart = fig_to_base64(fig)
+
+    # Cumulative sales chart
+    fig, ax = plt.subplots(figsize=(6,4))
+    rev.cumsum().plot(ax=ax)
+    ax.set_ylabel("Cumulative Sales")
+    cumulative_sales_chart = fig_to_base64(fig)
 
     return {
-        "total_sales": round(total, 6),
-        "average_sales": round(avg, 6),
-        "top_product": top_product,
+        "total_sales": round(total_sales,6),
         "top_region": top_region,
-        "sales_by_region": sales_by_region
+        "day_sales_correlation": None if day_sales_correlation is None else round(day_sales_correlation,6),
+        "bar_chart": bar_chart,
+        "median_sales": round(median_sales,6),
+        "total_sales_tax": round(total_sales_tax,6),
+        "cumulative_sales_chart": cumulative_sales_chart
     }
 
-# ========== Domain: Weather ==========
+# ================= Weather =================
 def analyze_weather(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {
-            "average_temperature": 0.0,
-            "max_temperature": 0.0,
-            "min_temperature": 0.0,
-            "total_rainfall": 0.0,
-            "days_recorded": 0
-        }
-
+        return {k: None for k in [
+            "average_temp_c","max_precip_date","min_temp_c",
+            "temp_precip_correlation","average_precip_mm",
+            "temp_line_chart","precip_histogram"
+        ]}
     df = pd.concat(dfs, ignore_index=True)
+
+    # Columns
     col_temp = next((c for c in df.columns if "temp" in c.lower()), None)
-    col_rain = next((c for c in df.columns if "rain" in c.lower() or "precip" in c.lower()), None)
+    col_precip = next((c for c in df.columns if "precip" in c.lower() or "rain" in c.lower()), None)
+    col_date = next((c for c in df.columns if "date" in c.lower()), None)
 
-    avg_temp = max_temp = min_temp = 0.0
-    if col_temp:
-        vals = pd.to_numeric(df[col_temp], errors="coerce").dropna()
-        if not vals.empty:
-            avg_temp = float(vals.mean())
-            max_temp = float(vals.max())
-            min_temp = float(vals.min())
+    temp = pd.to_numeric(df[col_temp], errors="coerce") if col_temp else pd.Series([0]*len(df))
+    precip = pd.to_numeric(df[col_precip], errors="coerce").fillna(0) if col_precip else pd.Series([0]*len(df))
 
-    total_rain = 0.0
-    if col_rain:
-        vals = pd.to_numeric(df[col_rain], errors="coerce").fillna(0)
-        total_rain = float(vals.sum())
+    avg_temp = float(temp.mean())
+    min_temp = float(temp.min())
+    avg_precip = float(precip.mean())
 
-    days = int(len(df))
+    max_precip_date = None
+    if col_precip and col_date:
+        idx = precip.idxmax()
+        if idx is not None and idx < len(df):
+            max_precip_date = str(df[col_date].iloc[idx])
+
+    # Correlation
+    try:
+        temp_precip_corr = float(temp.corr(precip))
+    except:
+        temp_precip_corr = None
+
+    # Temp line chart
+    fig, ax = plt.subplots(figsize=(6,4))
+    temp.plot(ax=ax)
+    ax.set_ylabel("Temperature (C)")
+    temp_line_chart = fig_to_base64(fig)
+
+    # Precip histogram
+    fig, ax = plt.subplots(figsize=(6,4))
+    ax.hist(precip.dropna(), bins=10)
+    ax.set_xlabel("Precipitation (mm)")
+    ax.set_ylabel("Frequency")
+    precip_histogram = fig_to_base64(fig)
 
     return {
-        "average_temperature": round(avg_temp, 6),
-        "max_temperature": round(max_temp, 6),
-        "min_temperature": round(min_temp, 6),
-        "total_rainfall": round(total_rain, 6),
-        "days_recorded": days
+        "average_temp_c": round(avg_temp,6),
+        "max_precip_date": max_precip_date,
+        "min_temp_c": round(min_temp,6),
+        "temp_precip_correlation": None if temp_precip_corr is None else round(temp_precip_corr,6),
+        "average_precip_mm": round(avg_precip,6),
+        "temp_line_chart": temp_line_chart,
+        "precip_histogram": precip_histogram
     }
 
-# ========== Domain: Graph ==========
+# ================= Graph =================
 def analyze_graph(dfs: List[pd.DataFrame]) -> Dict:
     if not dfs:
-        return {
-            "edge_count": 0,
-            "highest_degree_node": "",
-            "average_degree": 0.0,
-            "density": 0.0,
-            "shortest_path_alice_eve": 0,
-            "network_graph": "",
-            "degree_histogram": ""
-        }
-
+        return {k: None for k in [
+            "edge_count","highest_degree_node","average_degree","density",
+            "shortest_path_alice_eve","network_graph","degree_histogram"
+        ]}
     df = pd.concat(dfs, ignore_index=True)
     if df.shape[1] < 2:
-        return {
-            "edge_count": 0,
-            "highest_degree_node": "",
-            "average_degree": 0.0,
-            "density": 0.0,
-            "shortest_path_alice_eve": 0,
-            "network_graph": "",
-            "degree_histogram": ""
-        }
-
+        return {}
     edges = list(df.iloc[:, :2].itertuples(index=False, name=None))
+
     G = nx.Graph()
     G.add_edges_from(edges)
 
+    edge_count = G.number_of_edges()
     degrees = dict(G.degree())
     highest_degree_node = max(degrees, key=degrees.get)
     average_degree = sum(degrees.values()) / len(degrees)
     density = nx.density(G)
 
-    shortest_path_alice_eve = 0
+    shortest_path_alice_eve = None
     if "Alice" in G and "Eve" in G:
         try:
             shortest_path_alice_eve = nx.shortest_path_length(G, "Alice", "Eve")
         except nx.NetworkXNoPath:
-            shortest_path_alice_eve = 0
+            shortest_path_alice_eve = None
 
-    # Draw network graph
-    plt.figure(figsize=(6, 6))
-    nx.draw(G, with_labels=True, node_color='lightblue', node_size=500)
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    network_graph_b64 = base64.b64encode(buf.getvalue()).decode()
+    # Network graph
+    fig, ax = plt.subplots(figsize=(6,6))
+    nx.draw(G, with_labels=True, node_color='lightblue', node_size=500, ax=ax)
+    network_graph = fig_to_base64(fig)
 
     # Degree histogram
-    plt.figure(figsize=(6, 4))
-    plt.hist(list(degrees.values()), bins=range(1, max(degrees.values())+2))
-    plt.xlabel("Degree")
-    plt.ylabel("Frequency")
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png")
-    plt.close()
-    degree_histogram_b64 = base64.b64encode(buf.getvalue()).decode()
+    fig, ax = plt.subplots(figsize=(6,4))
+    ax.hist(list(degrees.values()), bins=range(1, max(degrees.values())+2))
+    ax.set_xlabel("Degree")
+    ax.set_ylabel("Frequency")
+    degree_histogram = fig_to_base64(fig)
 
     return {
-        "edge_count": G.number_of_edges(),
-        "highest_degree_node": str(highest_degree_node),
-        "average_degree": round(average_degree, 6),
-        "density": round(density, 6),
+        "edge_count": edge_count,
+        "highest_degree_node": highest_degree_node,
+        "average_degree": round(average_degree,6),
+        "density": round(density,6),
         "shortest_path_alice_eve": shortest_path_alice_eve,
-        "network_graph": network_graph_b64,
-        "degree_histogram": degree_histogram_b64
+        "network_graph": network_graph,
+        "degree_histogram": degree_histogram
     }
 
-# ========== Main Orchestrator ==========
+# ================= Orchestrator =================
 def orchestrate(questions_file: str, attachment_files: List[str]) -> Dict:
     q_text = read_text_file(questions_file)
     dfs = [read_any_table(p) for p in attachment_files]
     q_low = q_text.lower()
 
-    if "sale" in q_low or any("sale" in c.lower() for df in dfs for c in df.columns):
+    if "sale" in q_low:
         return {"task_type": "sales", "output": analyze_sales(dfs)}
-    if "temp" in q_low or "weather" in q_low or any("temp" in c.lower() for df in dfs for c in df.columns):
+    if "weather" in q_low or "temp" in q_low:
         return {"task_type": "weather", "output": analyze_weather(dfs)}
-    if "edge" in q_low or "graph" in q_low or any("edge" in c.lower() for df in dfs for c in df.columns):
+    if "graph" in q_low or "edge" in q_low:
         return {"task_type": "graph", "output": analyze_graph(dfs)}
 
-    prompt_meta = f"""
-You are a Python data assistant.
-Generate Python code to:
-1. Read the attached data.
-2. Print JSON with: num_rows, num_columns, column_names, sample_data (max 5 rows).
-Question: {q_text}
-Attachments: {[os.path.basename(f) for f in attachment_files]}
-"""
-    meta_code = call_llm(prompt_meta)
-    ok, meta_out = exec_python(meta_code)
-    metadata_json = json.loads(meta_out) if ok else {"raw": meta_out}
-
-    prompt_solution = f"""
-You are a Python data assistant.
-Solve the question based on the metadata and attachments.
-Return only JSON output that answers the question.
-Question: {q_text}
-Metadata: {json.dumps(metadata_json)}
-"""
-    solution_code = call_llm(prompt_solution)
-    for _ in range(MAX_FIX_ATTEMPTS):
-        ok, sol_out = exec_python(solution_code)
-        if ok:
-            try:
-                parsed = json.loads(sol_out)
-            except:
-                parsed = {"raw_output": sol_out}
-            return {"task_type": "other", "output": parsed}
-        fix_prompt = f"Fix this Python code so it runs:\nERROR:\n{sol_out}\nCODE:\n{solution_code}"
-        solution_code = call_llm(fix_prompt)
-
-    raise RuntimeError("Max LLM fix attempts reached.")
+    return {"task_type": "other", "output": {"message": "Unsupported question"}}
